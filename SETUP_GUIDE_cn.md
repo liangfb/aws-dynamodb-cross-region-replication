@@ -179,23 +179,11 @@ aws ssm put-parameter --name /DDBReplication/TableCN/AccessKey --value <access_k
 aws ssm put-parameter --name /DDBReplication/TableCN/SecretKey --value <secret_key> --type SecureString
 ```
 
-
-
-#### 北京区域
-
-创建/DDBReplication/TableSG/AccessKey
-（String）和/DDBReplication/TableSG/SecretKey（SecureString），分别存入Global用户的AK/SK
-
-```bash
-aws ssm put-parameter --name /DDBReplication/TableSG/AccessKey --value <access_key> --type String
-aws ssm put-parameter --name /DDBReplication/TableSG/SecretKey --value <secret_key> --type SecureString
-```
-
 ### 1.4 创建SQS
 
 #### 新加坡区域
 
-创建2个标准SQS队列用于Lambda的On-failure Destination。
+创建标准SQS队列用于Lambda的On-failure Destination。
 
 ```bash
 aws sqs create-queue --queue-name ddbstreamsg 
@@ -203,7 +191,7 @@ aws sqs create-queue --queue-name ddbstreamsg
 
 #### 北京区域
 
-创建2个标准SQS队列用于Lambda的On-failure Destination。
+创建标准SQS队列用于Lambda的On-failure Destination。
 
 ```bash
 aws sqs create-queue --queue-name ddbreplicatorcn
@@ -221,11 +209,11 @@ aws kinesis create-stream --stream-name ddb_replication_stream_cn --shard-count 
 
 ### 1.6 创建Lambda role并且授权
 
-请从[iam_role_policy](**iam_policy_example**)处下载相应的json，然后酌情修改相应的权限和用户信息，以备后续步骤创建role。
+请从[iam_role_policy](**iam_policy_example**)目录处下载相应的json，然后酌情修改相应的权限和用户信息，以备后续步骤创建role。
 
 #### 新加坡区域
 
-需要创建两个role为后续lambda使用
+需要创建role为后续lambda使用
 
 1、将DynamoDB stream中event发送到中国区的Kinesis的lambda需要以下权限：
 
@@ -272,41 +260,6 @@ aws iam attach-role-policy --role-name replicator_kinesis_role --policy-arn arn:
 aws iam attach-role-policy --role-name replicator_kinesis_role --policy-arn arn:aws-cn:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole 
 ```
 
-#### （可选）安装代理
-
-在有些实验中，我们发现在跨境公网传输数据时网络时延不稳定。可以通过增加代理服务器利用优化链路达到稳定的时延。在前述的VPC内再建一台EC2，选择实例类型c5.xlarge，并且在EC2上安装代理。这里以Squid为例
-
-以ec2-user运行
-
-```bash
-sudo yum install squid
-sudo vi /etc/sysctl.conf
-net.ipv4.ip_forward = 1
-sudo sysctl -p /etc/sysctl.conf
-sudo sysctl -a |grep -w ip_forward
-
-grep -n 'http_access deny all' /etc/squid/squid.conf
-56:http_access deny all
-```
-
-这里修改http_access为allow
-all，那么代理服务器的安全组就需要设置为只对lambda所在VPC的NAT网段放行，否则不安全
-
-```bash
-grep -n http /etc/squid/squid.conf |grep -w all
-56:http_access allow all
-
-sudo vi /etc/squid/squid.conf
-http_port 80
-sudo systemctl start squid
-sudo systemctl status squid
-sudo systemctl enable squid.service
-```
-
-代理服务器的安全组设定
-
--   两个区域内代理服务器的安全组中设定只允许对端region lambda所在VPC的NAT Gateway的http/https流量进来。
-
 ### 1.7 创建send to kinesis 的lambda函数
 
 #### 新加坡区域
@@ -329,14 +282,14 @@ account ID>:role/ddb_send_to_kinesis_role --runtime python3.7 --function-name dd
 | **Key**                     | **Value**                          |
 |-----------------------------|------------------------------------|
 | PARAMETER_STORE_PATH_PREFIX | /DDBReplication/TableCN/           |
-| TARGET_REGION               | cn-north-1                         |
+| TARGET_REGION               | us-west-2                          |
 | TARGET_STREAM               | ddb_replication_stream_cn          |
 | USE_PROXY                   | FALSE                              |
 | PROXY_SERVER                | \<China region proxy IP\>:\<port\> |
 
 ```bash
 aws lambda update-function-configuration --function-name ddb_send_to_kinesis
---environment "Variables={PARAMETER_STORE_PATH_PREFIX=/DDBReplication/TableCN/, TARGET_REGION=cn-north-1, TARGET_STREAM=ddb_replication_stream_cn,USE_PROXY=FALSE,PROXY_SERVER=<China region proxy IP>:<port>}"
+--environment "Variables={PARAMETER_STORE_PATH_PREFIX=/DDBReplication/TableCN/, TARGET_REGION=us-west-2, TARGET_STREAM=ddb_replication_stream_cn,USE_PROXY=FALSE,PROXY_SERVER=<China region proxy IP>:<port>}"
 ```
 
 ##### 创建触发器
@@ -362,12 +315,6 @@ aws lambda update-function-configuration --function-name ddb_send_to_kinesis
 ```bash
 aws lambda list-event-source-mappings --function-name ddb_send_to_kinesis
 ```
-
-#### 北京区域
-
-##### 创建lambda
-
-
 
 ### 1.8 创建消费Kinesis Stream的Lambda函数
 

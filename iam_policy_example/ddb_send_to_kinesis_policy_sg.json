@@ -4,7 +4,7 @@
         {
             "Effect": "Allow",
             "Action": "lambda:InvokeFunction",
-            "Resource": "arn:aws:lambda:ap-southeast-1:<Global account id>:function:ddb-replicator-sg*"
+            "Resource": "arn:aws:lambda:us-west-2:<Global account id>:function:ddb-replicator-sg*"
         },
         {
             "Effect": "Allow",
@@ -13,7 +13,7 @@
                 "logs:CreateLogStream",
                 "logs:PutLogEvents"
             ],
-            "Resource": "arn:aws:logs:ap-southeast-1:<Global account id>:*"
+            "Resource": "arn:aws:logs:us-west-2:<Global account id>:*"
         },
         {
             "Effect": "Allow",
@@ -23,7 +23,7 @@
                 "dynamodb:GetShardIterator",
                 "dynamodb:ListStreams"
             ],
-            "Resource": "arn:aws:dynamodb:ap-southeast-1:<Global account id>:table/user-sg/stream/*"
+            "Resource": "arn:aws:dynamodb:us-west-2:<Global account id>:table/user-sg/stream/*"
         },
         {
             "Effect": "Allow",
@@ -34,7 +34,7 @@
                 "ssm:GetParameter"
             ],
             "Resource": [
-                "arn:aws:ssm:ap-southeast-1:<Global account id>:parameter/DDBReplication/TableCN/*"
+                "arn:aws:ssm:us-west-2:<Global account id>:parameter/DDBReplication/TableCN/*"
             ]
         },
         {
@@ -43,7 +43,7 @@
                 "sqs:*"
             ],
             "Resource": [
-                "arn:aws:sqs:ap-southeast-1:<Global account>:ddbstreamsg"
+                "arn:aws:sqs:us-west-2:<Global account id>:ddbstreamsg"
             ]
         }
     ]

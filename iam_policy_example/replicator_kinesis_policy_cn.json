@@ -10,7 +10,7 @@
                 "kinesis:ListShards",
                 "kinesis:SubscribeToShard"
             ],
-            "Resource": "arn:aws-cn:kinesis:cn-north-1:<China account>:stream/ddb_replication_stream_cn",
+            "Resource": "arn:aws:kinesis:us-west-2:<account id>:stream/ddb_replication_stream_cn",
             "Effect": "Allow"
         },
         {
@@ -19,7 +19,7 @@
                 "sqs:GetQueueAttributes",
                 "sqs:GetQueueUrl"
             ],
-            "Resource": "arn:aws-cn:sqs:cn-north-1:<China account>:ddbreplicatorcn",
+            "Resource": "arn:aws:sqs:us-west-2:<account id>:ddbreplicatorcn",
             "Effect": "Allow"
         },
         {
@@ -36,7 +36,7 @@
                 "dynamodb:DeleteItem"
             ],
             "Resource": [
-                "arn:aws-cn:dynamodb:cn-north-1:<China account>:table/replicator_stats"
+                "arn:aws:dynamodb:us-west-2:<account id>:table/replicator_stats"
             ],
             "Effect": "Allow"
         },
@@ -54,7 +54,7 @@
                 "dynamodb:DeleteItem"
             ],
             "Resource": [
-                "arn:aws-cn:dynamodb:cn-north-1:<China account>:table/user-cn"
+                "arn:aws:dynamodb:us-west-2:<account id>:table/user-cn"
             ],
             "Effect": "Allow"
         },
