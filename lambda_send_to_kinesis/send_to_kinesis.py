@@ -50,10 +50,11 @@ def lambda_handler(event, context):
 
         if event_name in ['MODIFY', 'INSERT']:
             # If the update is generated from the target region, there is no need to resend the change there
-            if 'last_updater_region' in new_item and new_item['last_updater_region']['S'] == target_region:
-                skipped_items += 1
+
+            #if 'last_updater_region' in new_item and new_item['last_updater_region']['S'] == target_region:
+            #    skipped_items += 1
                 # print('Skipping changes generated from region {}'.format(target_region))
-                continue
+            #    continue
             # print('New/updated item:'+str(new_item))
 
             event_data = {'event_name': event_name, 'new_image': new_item}

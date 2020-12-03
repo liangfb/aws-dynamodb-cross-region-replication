@@ -1,6 +1,8 @@
+**本向导用于单向同步**
+
 # 1. 手动部署环境
 
-在北京区域创建以下对象：
+在北京区域(目标)创建以下对象：
 
 -   3张DynamoDB表，
 -   **user-cn**存储用户信息，数据将和新加坡区域的user-sg保持同步
@@ -9,19 +11,13 @@
     
 -   **replicator-stats**表用来统计复制完成的记录数，以便监控复制进度
     
--   User-cn开启DynamoDB stream，用于记录user-cn表的所有变更
-
 -   Kinesis 流**ddb_replication_stream_cn**：用于记录新加坡区域DynamoDB表user-sg的所有变更
     
 -   Lambda函数**replicator_kinesis**：将北京区域中ddb_replication_stream_cn上的变更记录写入user-cn表
-    
--   Lambda 函数**ddb_send_to_kinesis**：将从北京区域的DynamoDB stream中读取变更记录然后写入到新加坡区域的ddb_replication_stream_sg
-    
--   **Parameter store**中存储新加坡区域IAM用户的AK/SK
 
 -   如果客户有direct connect，可以创建VPC并在VPC内部署一个代理服务器，lambda也部署在VPC内，令lambda利用新加坡区域的代理服务器进而利用direct connect，从而减少网络延迟并提高网络稳定性
 
-在新加坡区域创建以下对象：
+在新加坡区域（源）创建以下对象：
 
 -   3张DynamoDB表
 
@@ -31,27 +27,12 @@
 
     -   **replicator-stats**表用来存储复制的变更记录数，以便监控复制进度
 
--   User-sg开启DynamoDB stream，用于记录user-cn表的所有变更
-
--   Kinesis stream **ddb_replication_stream_sg**用于记录北京区域DynamoDB表user-cn的所有变更
-    
--   Lambda函数**replicator_kinesis**将新加坡区域中ddb_replication_stream_sg上的变更记录写入user-sg表
+-   User-sg开启DynamoDB stream，用于记录表的所有变更
     
 -   Lambda 函数**ddb_send_to_kinesis**将从新加坡区域的DynamoDB stream中读取变更记录然后写入到北京区域的ddb_replication_stream_cn
     
 -   **Parameter store**中存储北京区域IAM用户的AK/SK
 
--   如果客户有跨境专线连接AWS中国区域和海外区域，可以创建VPC并在VPC内部署一个代理服务器，lambda也部署在VPC内，令lambda利用北京区域的代理服务器进而利用direct connect，从而减少网络延迟并提高网络稳定性
-
-因为对象较多，我们以北京区域DynamoDB表user-cn中的变更数据向新加坡区域同步过程为例，将整个数据流梳理一遍，从新加坡DynamoDB表user-sg同步数据到user-cn的过程类似将不再赘述
-
--   当数据写入北京区域DynamoDB表**user-cn**后，变更记录首先会写入北京区域的DynamoDB stream
-    
--   北京区域的Lambda **ddb_send_to_kinesis**将从北京区域的DynamoDB stream中读取变更记录，首先判断记录**last_updater_region**是否是新加坡区域，如果是就丢弃，不是则写入到新加坡区域的**ddb_replication_stream_sg**，这一步将跨region，主要的网络延迟就在这一步
-    
--   新加坡区域的Lambda **replicator_kinesis**将新加坡区域中**ddb_replication_stream_sg**上的变更记录写入**user-sg**表，在写入时会通过condition判断变更记录的时间戳是否大于当前记录的变更时间戳，只有大于才会写入。
-    
--   新加坡区域的user-sg的变化记录又出现在DynamoDB stream中，并被新加坡区域的Lambda **ddb_send_to_kinesis**读取，而后判断记录的**last_updater_region**是否是北京区域，因为该变化恰恰是来自北京，所以该记录被丢弃，从而避免了循环复制。
 
 ### 1.1 准备压测机
 
@@ -218,7 +199,6 @@ aws ssm put-parameter --name /DDBReplication/TableSG/SecretKey --value <secret_k
 
 ```bash
 aws sqs create-queue --queue-name ddbstreamsg 
-aws sqs create-queue --queue-name ddbreplicatorsg
 ```
 
 #### 北京区域
@@ -226,19 +206,10 @@ aws sqs create-queue --queue-name ddbreplicatorsg
 创建2个标准SQS队列用于Lambda的On-failure Destination。
 
 ```bash
-aws sqs create-queue --queue-name ddbstreamcn 
 aws sqs create-queue --queue-name ddbreplicatorcn
 ```
 
 ### 1.5 创建Kinesis Data Stream
-
-#### 新加坡区域
-
-创建Kinesis Data Stream，因为DEMO中写入量有限，选取一个shard，实际生产中请酌情调整
-
-```bash
-aws kinesis create-stream --stream-name ddb_replication_stream_sg --shard-count 1
-```
 
 #### 北京区域
 
@@ -276,58 +247,12 @@ aws iam attach-role-policy --role-name ddb_send_to_kinesis_role --policy-arn
 arn:aws:iam::<Global account>:policy/ddb_send_to_kinesis_policy 
 ```
 
-2、将新加坡Kinesis Data Stream中event写入新加坡区DDB需要以下权限：
-
--   访问Kinesis Data Stream的权限
-
--   访问CloudWatch的权限
-
--   访问user-cn与replicator_stats两个DynamoDB表的权限
-
--   访问lambda On-failure destination的SQS队列的权限
-
--   访问VPC的权限：这部分权限我们使用现成的policy [AWSLambdaBasicExecutionRole](https://console.amazonaws.cn/iam/home?region=cn-north-1#/policies/arn%3Aaws-cn%3Aiam%3A%3Aaws%3Apolicy%2Fservice-role%2FAWSLambdaBasicExecutionRole)、AWSLambdaVPCAccessExecutionRole
-
-```bash
-aws iam create-policy --policy-name replicator_kinesis_policy --policy-document file://iam_policy_example/replicator_kinesis_policy_sg.json 
-aws iam create-role --role-name replicator_kinesis_role
---assume-role-policy-document file://iam_policy_example/lambda-role-trust-policy.json
-aws iam attach-role-policy --role-name replicator_kinesis_role --policy-arn
-arn:aws-cn:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
-aws iam attach-role-policy --role-name replicator_kinesis_role --policy-arn
-arn:aws:iam::<Global account ID>:policy/replicator_kinesis_policy
-aws iam attach-role-policy --role-name replicator_kinesis_role --policy-arn
-arn:aws-cn:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-```
 
 #### 北京区域
 
-需要创建两个role为后续lambda使用
+需要创建role为后续lambda使用
 
-1、将DynamoDB stream中event发送到新加坡区的Kinesis需要以下权限：
-
--   访问DynamoDB stream的权限
-
--   访问Parameter Store的权限
-
--   访问lambda On-failure destination的SQS队列的权限
-
--   访问VPC的权限：这部分权限我们使用现成的policy
-    [AWSLambdaBasicExecutionRole](https://console.amazonaws.cn/iam/home?region=cn-north-1#/policies/arn%3Aaws-cn%3Aiam%3A%3Aaws%3Apolicy%2Fservice-role%2FAWSLambdaBasicExecutionRole)
-    、AWSLambdaVPCAccessExecutionRole
-
-```bash
-aws iam create-policy --policy-name ddb_send_to_kinesis_policy --policy-document
-file://iam_policy_example/ddb_send_to_kinesis_policy_cn.json
-aws iam create-role --role-name ddb_send_to_kinesis_role
---assume-role-policy-document file://iam_policy_example/lambda-role-trust-policy.json
-aws iam attach-role-policy --role-name ddb_send_to_kinesis_role --policy-arn
-arn:aws-cn:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
-aws iam attach-role-policy --role-name ddb_send_to_kinesis_role --policy-arn
-arn:aws-cn:iam::<China account ID>:policy/ddb_send_to_kinesis_policy
-```
-
-2、将Kinesis Data Stream中event写入DDB需要以下权限：
+1、将Kinesis Data Stream中event写入DDB需要以下权限：
 
 -   访问Kinesis Data Stream的权限
 
@@ -438,100 +363,13 @@ aws lambda update-function-configuration --function-name ddb_send_to_kinesis
 aws lambda list-event-source-mappings --function-name ddb_send_to_kinesis
 ```
 
-##### 将lambda置于VPC内
-
-在lambda页面选中ddb_send_to_kinesis，在VPC界面进行设置，选中两个AZ中的私有子网，并选择预先设置好security
-group，向北京区代理服务器的EIP网段开放http/https接口
-
 #### 北京区域
 
 ##### 创建lambda
 
-创建python lambda function命名为ddb-send-to-kinesis，上传ddb_send_to_kinesis的Lambda代码，编辑send_to_kinesis.py，代码请见[send_to_kinesis.py](https://github.com/aws-samples/aws-dynamodb-cross-region-replication/blob/master/send_to_kinesis.py)
 
-```bash
-zip send_kinesis.zip send_to_kinesis.py
-
-aws lambda create-function --role arn:aws-cn:iam::<China account>:role/ddb_send_to_kinesis_role --runtime python3.7 --function-name ddb_send_to_kinesis --handler send_to_kinesis.lambda_handler --zip-file fileb://send_kinesis.zip --timeout 60
-```
-
-##### 设置环境变量
-
-为lambda添加五个环境变量，第一个用来从parameter store中获取中国区的Access Key和Secret Key的路径
-
-| **Key**                     | **Value**                              |
-|-----------------------------|----------------------------------------|
-| PARAMETER_STORE_PATH_PREFIX | /DDBReplication/TableSG/               |
-| TARGET_REGION               | ap-southeast-1                         |
-| TARGET_STREAM               | ddb_replication_stream_sg              |
-| USE_PROXY                   | FALSE                                  |
-| PROXY_SERVER                | \<Singapore region proxy IP\>:\<port\> |
-
-```bash
-aws lambda update-function-configuration --function-name ddb_send_to_kinesis
---environment "Variables={PARAMETER_STORE_PATH_PREFIX=/DDBReplication/TableSG/, TARGET_REGION=ap-southeast-1, TARGET_STREAM=ddb_replication_stream_sg, USE_PROXY=FALSE, PROXY_SERVER=<Singapore region proxy IP>:<port>}"
-```
-
-##### 创建触发器
-
-通过lambda页面选中ddb_send_to_kinesis，而后选择add trigger，下拉框中选择DynamoDB，而后填写以下信息：
-
--   从DynamoDB console获取我们开启的DDB stream的arn，填写到DDB table处
-
--   将SQS：ddbstreamcn的arn填写到On-failure destination处
-
--   Concurrent batches per shard设为10
-
--   Batch size设为500
-
--   Retry attempts: 300
-
--   Maximum age of record: 1 Day。
-
--   Timeout设置为1分钟
-
-```bash
-aws lambda list-event-source-mappings --function-name ddb_send_to_kinesis
-```
-
-##### 将lambda置于VPC内
-
-在lambda页面选中ddb_send_to_kinesis，在VPC界面进行设置，选中两个AZ中的私有子网，并选择预先设置好security
-group，向新加坡区代理服务器的EIP网段开放http/https接口
 
 ### 1.8 创建消费Kinesis Stream的Lambda函数
-
-#### 新加坡区域
-
-##### 创建lambda
-
-创建python lambda function命名为replicator_kinesis，上传replicator_kinesis的Lambda代码，代码请见[replicator_kinesis.py](https://github.com/aws-samples/aws-dynamodb-cross-region-replication/blob/master/replicator_kinesis.py)
-
-```bash
-zip replicator_kinesis.zip replicator_kinesis.py
-
-aws lambda create-function --role arn:aws:iam::<Global account>:role/replicator_kinesis_role --runtime python3.7 --function-name replicator_kinesis --handler replicator_kinesis.lambda_handler --zip-file fileb://replicator_kinesis.zip --timeout 60
-```
-
-##### 设置环境变量
-
-```bash
-aws lambda update-function-configuration --function-name replicator_kinesis --environment "Variables={TARGET_TABLE=user-sg}"
-```
-
-##### 创建触发器
-
-通过lambda页面选中replicator_kinesis，而后选择add trigger，下拉框中选择Kinesis，而后填写以下信息：
-
--   下拉菜单中选取ddb_replication_stream_sg
-
--   将SQS：ddbreplicatorsg的arn填写到On-failure destination处
-
--   Concurrent batches per shard：10
-
--   Batch size：500
-
--   Retry attempts:100
 
 #### 北京区域
 
